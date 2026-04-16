@@ -136,7 +136,7 @@ def onboard_admin(
     role_level: str = Form(...), 
     department_id: int = Form(None), 
     permissions: str = Form(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin)
 ):
     if current_admin.role != UserRole.ADMIN:

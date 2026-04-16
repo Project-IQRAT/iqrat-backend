@@ -14,16 +14,22 @@ app = FastAPI(title=settings.PROJECT_NAME)
 # ==========================================
 # 1. CORS MIDDLEWARE (The Bridge to React) 
 # ==========================================
-# We grab the live Vercel URL from Render's environment, otherwise we use a placeholder
-live_frontend = os.getenv("FRONTEND_URL", "https://iqrat-temp-url.vercel.app")
+# 1. Get the frontend URL from environment variables
+live_frontend = os.getenv("FRONTEND_URL")
 
+# 2. Start with your known local and production URLs
 origins = [
     "http://localhost:5173", 
     "http://localhost:3000", 
     "http://127.0.0.1:5173", 
     "http://127.0.0.1:3000",
-    "https://iqrat.vercel.app"
+    "https://iqrat.vercel.app",
 ]
+
+# 3. Add the live_frontend to the list only if it's actually set in Render
+if live_frontend:
+    # Ensure no trailing slash which causes CORS to fail
+    origins.append(live_frontend.rstrip("/"))
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,6 +42,10 @@ app.add_middleware(
 # ==========================================
 # 2. MOUNT STATIC FILES (For Student Photos) 
 # ==========================================
+# Create the static directory if it doesn't exist to prevent a startup crash
+if not os.path.exists("static"):
+    os.makedirs("static")
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ==========================================

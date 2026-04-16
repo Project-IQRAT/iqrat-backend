@@ -684,7 +684,7 @@ def get_my_attendance(email: str, db: Session = Depends(get_db)):
 
         history.append({
             "sr": len(logs) - i, 
-            "date": log.scan_time.strftime("%b %d, %Y • %I:%M %p"),
+            "date": log.scan_time.strftime("%b %d, %Y • %I:%M %p") if log.scan_time else "No Time Logged",
             "status": log.status,
             "subject_code": sub_code
         })

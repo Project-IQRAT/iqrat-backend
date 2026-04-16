@@ -58,7 +58,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
         if profile:
             full_name = profile.full_name
             roll_no = profile.reg_no
-            photo_path = f"http://localhost:8000/{profile.photo_path}" if profile.photo_path else ""
+            photo_path = f"${import.meta.env.VITE_API_URL}/{profile.photo_path}" if profile.photo_path else ""
             
     elif str(role_str).lower() == "lecturer":
         profile = db.query(Lecturer).filter(Lecturer.user_id == user.id).first()

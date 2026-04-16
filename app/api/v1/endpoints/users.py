@@ -135,12 +135,12 @@ def onboard_admin(
     contact_no: str = Form(None), 
     role_level: str = Form(...), 
     department_id: int = Form(None), 
-    permissions: str = Form(None), # Comma separated list from React
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(get_current_admin)
+    permissions: str = Form(None),
+    db: Session = Depends(get_db)
+    #current_admin: User = Depends(get_current_admin)
 ):
-    if current_admin.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Only Admins can do this")
+    #if current_admin.role != UserRole.ADMIN:
+        #raise HTTPException(status_code=403, detail="Only Admins can do this")
 
     # ENFORCE: Only 1 Super Admin Allowed
     if role_level == "super_admin":

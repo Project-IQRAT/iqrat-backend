@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from app.models.users import DeviceChangeRequest, RequestStatus, UserDevice, DeviceStatus
 import shutil
 import os
+import cloudinary.uploader
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -42,14 +43,17 @@ async def onboard_student(
     if db.query(Student).filter(Student.reg_no == roll_no).first():
         raise HTTPException(status_code=400, detail="Roll Number already exists")
 
-    # --- MISSING PIECE RESTORED: FILE UPLOAD LOGIC ---
-    os.makedirs("static/admission_photos", exist_ok=True)
-    file_extension = photo.filename.split(".")[-1]
-    safe_filename = f"{roll_no}_master.{file_extension}"
-    file_location = f"static/admission_photos/{safe_filename}"
-    
-    with open(file_location, "wb+") as file_object:
-        shutil.copyfileobj(photo.file, file_object)
+    # --- CLOUDINARY FILE UPLOAD LOGIC ---
+    try:
+        upload_result = cloudinary.uploader.upload(
+            photo.file,
+            folder="iqrat_admission_photos",
+            public_id=f"{roll_no}_master"
+        )
+        file_location = upload_result.get("secure_url")
+    except Exception as e:
+        print(f"Cloudinary Upload Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to upload image to cloud storage.")
 
     new_user = User(
         email=email, 
@@ -900,12 +904,18 @@ async def update_my_profile(
     profile_data.contact_no = contact_no
 
     if photo:
-        os.makedirs("static/profile_photos", exist_ok=True)
-        file_location = f"static/profile_photos/{identifier}_master.jpg"
-        with open(file_location, "wb+") as file_object:
-            shutil.copyfileobj(photo.file, file_object)
-        if hasattr(profile_data, "photo_path"):
-            profile_data.photo_path = file_location
+        try:
+            upload_result = cloudinary.uploader.upload(
+                photo.file,
+                folder="iqrat_profile_photos",
+                public_id=f"{identifier}_master",
+                invalidate=True # Pro-Tip: Forces Cloudinary to instantly refresh the cached image if they change it
+            )
+            if hasattr(profile_data, "photo_path"):
+                profile_data.photo_path = upload_result.get("secure_url")
+        except Exception as e:
+            print(f"Cloudinary Update Error: {str(e)}")
+            raise HTTPException(status_code=500, detail="Failed to update image in cloud storage.")
 
     db.commit()
     return {"msg": "Profile updated successfully!", "new_email": user.email}

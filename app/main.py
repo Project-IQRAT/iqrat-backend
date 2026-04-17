@@ -6,6 +6,20 @@ from app.core.config import settings
 from app.db.base import Base
 import os
 
+# ==========================================
+# NEW: CLOUDINARY CONFIGURATION
+# ==========================================
+import cloudinary
+import cloudinary.uploader
+
+# Note: In a professional setting, these strings should be hidden in a .env file!
+cloudinary.config( 
+    cloud_name="dx7qvijds", 
+    api_key="565849931171524", 
+    api_secret="IrOvlkFbGp0VRlmeT3Hg7SDEfIs",
+    secure=True
+)
+
 # Import all routers (Notice attendance is gone)
 from app.api.v1.endpoints import auth, users, academic
 
@@ -43,6 +57,7 @@ app.add_middleware(
 # 2. MOUNT STATIC FILES (For Student Photos) 
 # ==========================================
 # Create the static directory if it doesn't exist to prevent a startup crash
+# (We keep this so any existing code that relies on /static doesn't break)
 if not os.path.exists("static"):
     os.makedirs("static")
 
@@ -55,8 +70,6 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Onboarding"])
 app.include_router(academic.router, prefix="/api/v1/academic", tags=["Academic Structure"])
 app.include_router(system.router, prefix="/api/v1/system", tags=["system"])
-
-# --- REMOVED THE ATTENDANCE ROUTER LINE FROM HERE ---
 
 @app.get("/")
 def read_root():

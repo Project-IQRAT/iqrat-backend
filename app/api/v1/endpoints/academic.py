@@ -1005,14 +1005,53 @@ def get_all_timetables_universal(db: Session = Depends(get_db)):
     """Fetches all scheduled classes for the visualizer grid."""
     return db.query(Timetable).all()
 
+# ==========================================
+# TIMETABLE MANAGEMENT (DELETE & UPDATE)
+# ==========================================
+
+# OPTION A: Completely delete the slot and wipe attendance
 @router.delete("/timetables/{timetable_id}")
 def delete_timetable_slot(timetable_id: int, db: Session = Depends(get_db)):
-    """Deletes a scheduled slot from the visualizer."""
+    """Permanently deletes a slot AND wipes all associated attendance/sessions."""
     slot = db.query(Timetable).filter(Timetable.id == timetable_id).first()
-    if not slot: raise HTTPException(status_code=404, detail="Slot not found")
+    if not slot: 
+        raise HTTPException(status_code=404, detail="Slot not found")
+    
+    # 1. Safely wipe dependencies first to prevent the database crash
+    db.query(AttendanceLog).filter(AttendanceLog.timetable_id == timetable_id).delete(synchronize_session=False)
+    db.query(ClassSession).filter(ClassSession.timetable_id == timetable_id).delete(synchronize_session=False)
+
+    # 2. Delete the actual timetable slot
     db.delete(slot)
     db.commit()
-    return {"msg": "Timetable slot deleted successfully"}
+    return {"msg": "Timetable slot and all associated attendance records deleted successfully"}
+
+
+# OPTION B: Update the slot (Change time/day WITHOUT losing attendance)
+class TimetableUpdate(BaseModel):
+    day_of_week: str
+    start_time: str
+    end_time: str
+    classroom_id: int
+
+@router.put("/timetables/{timetable_id}")
+def update_timetable_slot(timetable_id: int, data: TimetableUpdate, db: Session = Depends(get_db)):
+    """Changes the time/day of a class while preserving all historical attendance."""
+    slot = db.query(Timetable).filter(Timetable.id == timetable_id).first()
+    if not slot: 
+        raise HTTPException(status_code=404, detail="Slot not found")
+        
+    try:
+        slot.start_time = time.fromisoformat(data.start_time)
+        slot.end_time = time.fromisoformat(data.end_time)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid time format. Use HH:MM:SS")
+
+    slot.day_of_week = data.day_of_week
+    slot.classroom_id = data.classroom_id
+
+    db.commit()
+    return {"msg": "Timetable updated successfully! Attendance history preserved."}
 
 # ==========================================
 # 19. DELETE SUBJECT & TRANSFER CLASS

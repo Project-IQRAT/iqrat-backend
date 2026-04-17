@@ -14,12 +14,13 @@ from app.models.users import User, Student, Lecturer, Admin, UserRole, AdminRole
 from app.api.deps import get_db, get_current_admin, get_current_user
 from typing import Optional
 from pydantic import BaseModel
-from app.models.academic import Subject, SubjectOffering, Timetable, Classroom, Section, Semester, SessionBatch, Degree
+from app.models.academic import Subject, SubjectOffering, Timetable, Classroom, Section, Semester, SessionBatch, Degree, ClassSession
 from app.models.performance import SessionalMark, AttendanceLog, StudentGamification, Assessment, StudentAssessmentRecord
 from app.models.attendance import Avatar, AvatarMoodLog
 from app.models.system import Notification
 from app.ml.predictor import ai_engine
 from app.models.performance import PerformancePrediction, ResultStatus
+
 
 router = APIRouter()
 
@@ -289,7 +290,7 @@ def get_all_users(db: Session = Depends(get_db), current_admin: User = Depends(g
     if not is_super and dept_id:
         # Since we now correctly save degree_id, we just link Student -> Degree -> Department!
         students_q = students_q.join(Degree, Student.degree_id == Degree.id)\
-                               .filter(Degree.department_id == dept_id)
+                            .filter(Degree.department_id == dept_id)
         
     for s, email, is_act in students_q.all():
         users.append({
@@ -502,7 +503,7 @@ def batch_enroll_section(data: dict, db: Session = Depends(get_db)):
     return {"msg": f"Successfully enrolled {enrolled_count} students (Skipped existing)."}
 
 
-# 8. STUDENT DASHBOARD COURSES
+# 8. STUDENT DASHBOARD COURSES (Optimized for Speed)
 @router.get("/me/courses")
 def get_my_courses(email: str, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email).first()
@@ -514,49 +515,72 @@ def get_my_courses(email: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Student profile not found")
 
     enrollments = db.query(SessionalMark).filter(SessionalMark.student_id == student.id).all()
+    if not enrollments:
+        return []
+
+    # --- BULK FETCHING (The N+1 Fix) ---
+    subject_ids = [enr.subject_id for enr in enrollments]
+    semester_ids = [enr.semester_id for enr in enrollments]
     
+    # 1. Grab all subjects at once
+    all_subjects = {s.id: s for s in db.query(Subject).filter(Subject.id.in_(subject_ids)).all()}
+    
+    # 2. Grab all offerings at once
+    all_offerings = db.query(SubjectOffering).filter(
+        SubjectOffering.subject_id.in_(subject_ids),
+        SubjectOffering.semester_id.in_(semester_ids)
+    ).all()
+    
+    # 3. Grab all relevant lecturers at once
+    lecturer_ids = [o.lecturer_id for o in all_offerings if o.lecturer_id]
+    all_lecturers = {l.id: l for l in db.query(Lecturer).filter(Lecturer.id.in_(lecturer_ids)).all()}
+
+    # 4. Grab all timetables for these offerings at once
+    offering_ids = [o.id for o in all_offerings]
+    all_tts = db.query(Timetable).filter(Timetable.offering_id.in_(offering_ids)).all()
+    
+    # 5. Grab all attendance logs for this student at once
+    tt_ids = [t.id for t in all_tts]
+    all_logs = db.query(AttendanceLog).filter(
+        AttendanceLog.student_id == student.id,
+        AttendanceLog.timetable_id.in_(tt_ids),
+        AttendanceLog.status == "Present"
+    ).all()
+    # -----------------------------------
+
     courses_data = []
     for enr in enrollments:
-        sub = db.query(Subject).filter(Subject.id == enr.subject_id).first()
-        if sub:
-            offering = db.query(SubjectOffering).filter(
-                SubjectOffering.subject_id == sub.id,
-                SubjectOffering.semester_id == enr.semester_id
-            ).first()
+        sub = all_subjects.get(enr.subject_id)
+        if not sub: continue
+
+        # Find the specific offering from our pre-fetched list
+        offering = next((o for o in all_offerings if o.subject_id == sub.id and o.semester_id == enr.semester_id), None)
+        
+        lecturer_name = "TBD"
+        presents = 0
+        
+        if offering:
+            lec = all_lecturers.get(offering.lecturer_id)
+            if lec: lecturer_name = lec.full_name
             
-            lecturer_name = "TBD"
-            if offering:
-                lecturer = db.query(Lecturer).filter(Lecturer.id == offering.lecturer_id).first()
-                if lecturer:
-                    lecturer_name = lecturer.full_name
-            
-            section_display = f"Section {student.section_id}"
+            # Count presents from our pre-fetched logs
+            offering_tt_ids = [t.id for t in all_tts if t.offering_id == offering.id]
+            presents = sum(1 for log in all_logs if log.timetable_id in offering_tt_ids)
 
-            logs = []
-            if offering:
-                tts = db.query(Timetable).filter(Timetable.offering_id == offering.id).all()
-                tt_ids = [t.id for t in tts]
-                logs = db.query(AttendanceLog).filter(
-                    AttendanceLog.student_id == student.id,
-                    AttendanceLog.timetable_id.in_(tt_ids),
-                    AttendanceLog.status == "Present"
-                ).all()
+        total_classes = 30
+        attendance_pct = int((presents / total_classes) * 100) if presents > 0 else 0
 
-            presents = len(logs)
-            total_classes = 30
-            attendance_pct = int((presents / total_classes) * 100) if presents > 0 else 0
-
-            courses_data.append({
-                "offering_id": offering.id if offering else None,
-                "name": sub.name,
-                "code": sub.code,
-                "section": section_display,
-                "lecturer": lecturer_name, 
-                "attendance": attendance_pct, 
-                "presents": presents,
-                "absents": total_classes - presents,
-                "leaves": 0
-            })
+        courses_data.append({
+            "offering_id": offering.id if offering else None,
+            "name": sub.name,
+            "code": sub.code,
+            "section": f"Section {student.section_id}",
+            "lecturer": lecturer_name, 
+            "attendance": attendance_pct, 
+            "presents": presents,
+            "absents": total_classes - presents,
+            "leaves": 0
+        })
             
     return courses_data
 
@@ -685,10 +709,20 @@ def get_my_attendance(email: str, db: Session = Depends(get_db)):
                 sub = db.query(Subject).filter(Subject.id == offering.subject_id).first()
                 if sub:
                     sub_code = sub.code
+                    
+        # --- Smart Date Fallback ---
+        display_date = "Unknown Date"
+        if log.scan_time:
+            display_date = log.scan_time.strftime("%b %d, %Y • %I:%M %p")
+        else:
+            # If there's no exact scan time, use the overall session date
+            session = db.query(ClassSession).filter(ClassSession.id == int(log.session_id)).first()
+            if session and session.session_date:
+                display_date = session.session_date.strftime("%b %d, %Y")
 
         history.append({
             "sr": len(logs) - i, 
-            "date": log.scan_time.strftime("%b %d, %Y • %I:%M %p") if log.scan_time else "No Time Logged",
+            "date": display_date,
             "status": log.status,
             "subject_code": sub_code
         })
@@ -1212,6 +1246,25 @@ def get_ai_predictions(email: str, db: Session = Depends(get_db)):
     for enr in enrollments:
         subject = db.query(Subject).filter(Subject.id == enr.subject_id).first()
         if not subject: continue
+
+        # --- FAST PATH: Check if AI already calculated this recently ---
+        existing_pred = db.query(PerformancePrediction).filter(
+            PerformancePrediction.student_id == student.id,
+            PerformancePrediction.subject_id == subject.id
+        ).first()
+
+        if existing_pred:
+            predictions_data.append({
+                "subject_code": subject.code,
+                "subject_name": subject.name,
+                "predicted_attendance": 0, # Skip heavy math
+                "predicted_score": float(existing_pred.predicted_score),
+                "sessional_score": 0,
+                "final_exam_prediction": 0,
+                "status": existing_pred.predicted_status.value
+            })
+            continue # Skip the rest of the loop and move to the next course instantly!
+        # ----------------------------------------------------------------
 
         # 1. SAFER QUERY: Fetch offering IDs first to avoid subquery crashes
         offerings = db.query(SubjectOffering.id).filter(

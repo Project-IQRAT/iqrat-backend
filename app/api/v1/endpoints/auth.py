@@ -144,19 +144,38 @@ def request_otp(
         msg["To"] = user.email # ALWAYS send to the DB registered email, never trust the frontend!
 
         body = f"""
-        Hello,
-
-        A password reset was requested for your IQRAT account ({username}).
-        Your 6-digit OTP code is: 
-
-        {otp_code}
-
-        This code is valid for 10 minutes. If you did not request this, please ignore this email or contact your administrator immediately.
-
-        Securely,
-        IQRAT Automated System
+        <html>
+          <body style="font-family: Arial, sans-serif; background-color: #f9fafb; padding: 20px; margin: 0;">
+            <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); border: 1px solid #e5e7eb;">
+              
+              <h2 style="color: #4f46e5; text-align: center; margin-top: 0;">IQRAT Security Alert</h2>
+              <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
+              
+              <p style="color: #374151; font-size: 16px;">Hello,</p>
+              <p style="color: #374151; font-size: 16px;">A password reset was requested for your IQRAT account (<strong>{username}</strong>).</p>
+              <p style="color: #374151; font-size: 16px;">Your 6-digit OTP code is:</p>
+              
+              <div style="text-align: center; margin: 30px 0;">
+                <span style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #111827; background-color: #f3f4f6; padding: 15px 25px; border-radius: 8px; border: 2px dashed #d1d5db;">
+                  {otp_code}
+                </span>
+              </div>
+              
+              <p style="color: #ef4444; font-size: 14px; font-weight: bold;">⚠️ This code is valid for 10 minutes.</p>
+              <p style="color: #6b7280; font-size: 14px; line-height: 1.5;">If you did not request this password reset, please ignore this email or contact your campus administrator immediately. Do not share this code with anyone.</p>
+              
+              <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0 20px 0;">
+              <p style="color: #9ca3af; font-size: 12px; text-align: center; margin: 0;">
+                Securely,<br><strong>IQRAT Automated System</strong>
+              </p>
+            
+            </div>
+          </body>
+        </html>
         """
-        msg.attach(MIMEText(body, "plain"))
+        
+        # Notice we changed "plain" to "html" here!
+        msg.attach(MIMEText(body, "html"))
 
         # Connect to Gmail and send!
         server = smtplib.SMTP("smtp.gmail.com", 587)

@@ -71,5 +71,6 @@ app.include_router(academic.router, prefix="/api/v1/academic", tags=["Academic S
 app.include_router(system.router, prefix="/api/v1/system", tags=["system"])
 
 @app.get("/")
+@app.head("/")
 def read_root():
     return {"message": "Welcome to IQRAT Backend API"}

@@ -10,9 +10,8 @@ import os
 # NEW: CLOUDINARY CONFIGURATION
 # ==========================================
 import cloudinary
-import cloudinary.uploader
+from cloudinary import uploader
 
-# Note: In a professional setting, these strings should be hidden in a .env file!
 cloudinary.config( 
     cloud_name="dx7qvijds", 
     api_key="565849931171524", 

@@ -7,8 +7,9 @@ from app.models.system import Notification
 from typing import List, Optional
 import uuid
 import random
-import secrets  # <-- NEW: For secure QR tokens
-import math     # <-- NEW: For Geofencing math
+from sqlalchemy import text
+import secrets 
+import math 
 from datetime import datetime, time, date, timedelta, timezone
 from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
@@ -1017,9 +1018,9 @@ def delete_timetable_slot(timetable_id: int, db: Session = Depends(get_db)):
     if not slot: 
         raise HTTPException(status_code=404, detail="Slot not found")
     
-    # 1. Safely wipe dependencies first to prevent the database crash
-    db.query(AttendanceLog).filter(AttendanceLog.timetable_id == timetable_id).delete(synchronize_session=False)
-    db.query(ClassSession).filter(ClassSession.timetable_id == timetable_id).delete(synchronize_session=False)
+    # 1. Execute RAW SQL to mercilessly wipe dependencies without ORM interference
+    db.execute(text("DELETE FROM attendance_logs WHERE timetable_id = :tid"), {"tid": timetable_id})
+    db.execute(text("DELETE FROM class_sessions WHERE timetable_id = :tid"), {"tid": timetable_id})
 
     # 2. Delete the actual timetable slot
     db.delete(slot)

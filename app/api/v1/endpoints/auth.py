@@ -1,5 +1,9 @@
+import os
 import random
 import re
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Form
 from fastapi.security import OAuth2PasswordRequestForm
@@ -128,15 +132,51 @@ def request_otp(
         "expires_at": datetime.now() + timedelta(minutes=10)
     }
 
-    # 4. SIMULATE SENDING EMAIL/SMS
-    print("="*40)
-    print(f"🚨 SECURITY ALERT: PASSWORD RESET REQUESTED 🚨")
-    print(f"User: {username}")
-    print(f"Contact Provided: {contact}")
-    print(f"OTP CODE: {otp_code}")
-    print("="*40)
+    # 4. SEND ACTUAL EMAIL VIA GMAIL SMTP
+    # Keep these in your Render Environment Variables in production!
+    sender_email = os.getenv("SMTP_EMAIL", "project.iqrat@gmail.com") 
+    sender_password = os.getenv("SMTP_PASSWORD", "wpdq dbib nqow eflc") 
 
-    return {"msg": f"A 6-digit OTP has been sent to {contact}"}
+    try:
+        msg = MIMEMultipart()
+        msg["Subject"] = "IQRAT Security: Password Reset OTP"
+        msg["From"] = f"IQRAT System <{sender_email}>"
+        msg["To"] = user.email # ALWAYS send to the DB registered email, never trust the frontend!
+
+        body = f"""
+        Hello,
+
+        A password reset was requested for your IQRAT account ({username}).
+        Your 6-digit OTP code is: 
+
+        {otp_code}
+
+        This code is valid for 10 minutes. If you did not request this, please ignore this email or contact your administrator immediately.
+
+        Securely,
+        IQRAT Automated System
+        """
+        msg.attach(MIMEText(body, "plain"))
+
+        # Connect to Gmail and send!
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        
+        print(f"OTP successfully emailed to {user.email}")
+        
+    except Exception as e:
+        print(f"Email sending failed: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Failed to send email. Please contact the administrator."
+        )
+
+    # Mask the email for privacy on the frontend (e.g. j***@gmail.com)
+    masked_email = f"{user.email[0]}***@{user.email.split('@')[1]}"
+    return {"msg": f"A 6-digit OTP has been sent securely to {masked_email}"}
 
 
 @router.post("/forgot-password/verify-otp")

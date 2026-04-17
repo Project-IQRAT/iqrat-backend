@@ -655,27 +655,34 @@ def get_lecturer_courses(email: str, db: Session = Depends(get_db)):
 @router.get("/me/lecturer/timetable")
 def get_lecturer_timetable(email: str, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    if not user: raise HTTPException(status_code=404, detail="User not found")
         
     lecturer = db.query(Lecturer).filter(Lecturer.user_id == user.id).first()
-    if not lecturer:
-        raise HTTPException(status_code=404, detail="Lecturer profile not found")
+    if not lecturer: raise HTTPException(status_code=404, detail="Lecturer profile not found")
         
     offerings = db.query(SubjectOffering).filter(SubjectOffering.lecturer_id == lecturer.id).all()
     offering_ids = [o.id for o in offerings]
     
+    if not offering_ids: return []
+
     slots = db.query(Timetable).filter(Timetable.offering_id.in_(offering_ids)).all()
     
+    # --- BULK FETCHING: Grab everything in 3 fast queries instead of looping! ---
+    subject_ids = [o.subject_id for o in offerings]
+    all_subjects = {s.id: s for s in db.query(Subject).filter(Subject.id.in_(subject_ids)).all()}
+    all_classrooms = {c.id: c for c in db.query(Classroom).filter(Classroom.id.in_([s.classroom_id for s in slots])).all()}
+    offerings_dict = {o.id: o for o in offerings}
+    # ----------------------------------------------------------------------------
+
     schedule = []
     for slot in slots:
-        off = db.query(SubjectOffering).filter(SubjectOffering.id == slot.offering_id).first()
-        sub = db.query(Subject).filter(Subject.id == off.subject_id).first()
-        room = db.query(Classroom).filter(Classroom.id == slot.classroom_id).first()
+        off = offerings_dict.get(slot.offering_id)
+        sub = all_subjects.get(off.subject_id) if off else None
+        room = all_classrooms.get(slot.classroom_id)
         
         schedule.append({
             "timetable_id": slot.id, 
-            "offering_id": off.id,
+            "offering_id": off.id if off else None,
             "day": slot.day_of_week,
             "start": slot.start_time.strftime("%I:%M %p"),
             "end": slot.end_time.strftime("%I:%M %p"),
